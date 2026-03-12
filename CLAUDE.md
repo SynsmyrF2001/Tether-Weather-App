@@ -29,7 +29,7 @@ The app uses MVVM with SwiftUI:
 
 ## Key Notes
 
-- The API key is hardcoded in `ForecastListViewModel.swift` in the `getWeatherForecast()` call. It targets the OpenWeatherMap One Call API 3.0 endpoint.
+- **API key**: The OpenWeatherMap API key is not in source. It is read from `OpenWeatherMapAPIKey` in the app’s Info.plist, which is set via `ApiKeys.xcconfig` (gitignored). Copy `ApiKeys.xcconfig.example` to `ApiKeys.xcconfig` and add your key. The app targets the OpenWeatherMap One Call API 3.0 endpoint.
 - Temperature conversion happens in `ForecastViewModel.convert(temp:)`: API values are in Kelvin, subtract 273.15 to get Celsius.
 - The `system` property (0 = Celsius, 1 = Fahrenheit) is stored via `@AppStorage("system")` and propagated to all `ForecastViewModel` items on change.
 - `weatherIconURL` returns `URL?` — SDWebImageSwiftUI's `WebImage` handles optional URLs natively.

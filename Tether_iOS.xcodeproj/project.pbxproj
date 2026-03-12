@@ -32,6 +32,7 @@
 		0BF65C932B0BB50100C5807B /* Forecast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Forecast.swift; sourceTree = "<group>"; };
 		0BF65C952B0D394A00C5807B /* ForecastViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForecastViewModel.swift; sourceTree = "<group>"; };
 		0BF65C972B0D59C200C5807B /* ForecastListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForecastListViewModel.swift; sourceTree = "<group>"; };
+		0B0A00012B0BB42200C5807B /* ApiKeys.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ApiKeys.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -49,6 +50,7 @@
 		0BF65C752B0BB42200C5807B = {
 			isa = PBXGroup;
 			children = (
+				0B0A00012B0BB42200C5807B /* ApiKeys.xcconfig */,
 				0BF65C802B0BB42200C5807B /* Tether_iOS */,
 				0BF65C7F2B0BB42200C5807B /* Products */,
 			);
@@ -179,6 +181,7 @@
 /* Begin XCBuildConfiguration section */
 		0BF65C8C2B0BB42400C5807B /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0B0A00012B0BB42200C5807B /* ApiKeys.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -242,6 +245,7 @@
 		};
 		0BF65C8D2B0BB42400C5807B /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0B0A00012B0BB42200C5807B /* ApiKeys.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -300,6 +304,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_KEY_OpenWeatherMapAPIKey = "$(OPENWEATHERMAP_API_KEY)";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -328,6 +333,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_KEY_OpenWeatherMapAPIKey = "$(OPENWEATHERMAP_API_KEY)";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;

@@ -1,0 +1,8 @@
+# Secrets (never commit real keys)
+ApiKeys.xcconfig
+
+# macOS
+.DS_Store
+
+# Xcode user state (optional)
+*.xcuserstate

@@ -57,7 +57,15 @@ class ForecastListViewModel: ObservableObject {
                 }
                 if let lat = placemarks?.first?.location?.coordinate.latitude,
                    let lon = placemarks?.first?.location?.coordinate.longitude {
-                    apiService.getJSON(urlString: "https://api.openweathermap.org/data/3.0/onecall?lat=\(lat)&lon=\(lon)&exclude=current,minutely,hourly,alert&appid=b56fb6cb3a06206f5970443f2374877c", dateDecodingStrategy: .secondsSince1970) { [weak self] (result: Result<Forecast, APIService.APIError>) in
+                    guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "OpenWeatherMapAPIKey") as? String, !apiKey.isEmpty else {
+                        DispatchQueue.main.async {
+                            self.appError = AppError(errorString: NSLocalizedString("OpenWeatherMap API key is missing. Add it in ApiKeys.xcconfig (see ApiKeys.xcconfig.example).", comment: ""))
+                            self.isLoading = false
+                        }
+                        return
+                    }
+                    let urlString = "https://api.openweathermap.org/data/3.0/onecall?lat=\(lat)&lon=\(lon)&exclude=current,minutely,hourly,alert&appid=\(apiKey)"
+                    apiService.getJSON(urlString: urlString, dateDecodingStrategy: .secondsSince1970) { [weak self] (result: Result<Forecast, APIService.APIError>) in
                         guard let self = self else { return }
                         DispatchQueue.main.async {
                             switch result {

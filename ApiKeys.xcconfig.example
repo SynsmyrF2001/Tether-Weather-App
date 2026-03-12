@@ -1,0 +1,5 @@
+// Copy this file to ApiKeys.xcconfig and replace with your OpenWeatherMap API key.
+// Get a key at: https://openweathermap.org/api
+// Do not commit ApiKeys.xcconfig.
+
+OPENWEATHERMAP_API_KEY = YOUR_OPENWEATHERMAP_API_KEY
