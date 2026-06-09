@@ -1,6 +1,6 @@
 # Tether Weather
 
-A SwiftUI iOS app that shows a 7-day weather forecast for any location using the [OpenWeatherMap One Call API 3.0](https://openweathermap.org/api/one-call-3). Built as a first step into iOS development—focused on networking, API integration, and a simple, responsive UI.
+A SwiftUI iOS app that shows a 7-day weather forecast for any location using the [OpenWeatherMap One Call API 3.0](https://openweathermap.org/api/one-call-3). Built as a first step into iOS development — focused on networking, API integration, Swift concurrency, and a clean, responsive UI.
 
 ---
 
@@ -8,7 +8,7 @@ A SwiftUI iOS app that shows a 7-day weather forecast for any location using the
 
 - **7-day forecast** — Daily high/low, conditions, humidity, cloud cover, and precipitation chance
 - **Location search** — Enter a city or place; results are geocoded and used to fetch weather
-- **GPS** — Tap the arrow button to fetch weather for your current location (reverse-geocoded to a city name)
+- **GPS** — Tap the location button to fetch weather for your current location (reverse-geocoded to a city name)
 - **°C / °F toggle** — Switch between Celsius and Fahrenheit; preference is saved
 - **Last location** — Your last searched location is remembered and loaded on launch
 - **Weather icons** — Condition icons loaded from OpenWeatherMap
@@ -26,22 +26,22 @@ A SwiftUI iOS app that shows a 7-day weather forecast for any location using the
 
 ## Tech Stack
 
-| Layer        | Technology |
-|-------------|------------|
-| **UI**      | SwiftUI (iOS 17+) |
-| **Architecture** | MVVM |
-| **Networking**   | `URLSession`, OpenWeatherMap One Call API 3.0 |
+| Layer | Technology |
+|---|---|
+| **UI** | SwiftUI (iOS 16+) |
+| **Architecture** | MVVM, `@MainActor`, `async/await` |
+| **Networking** | `URLSession` + `async throws`, OpenWeatherMap One Call API 3.0 |
 | **Geocoding / GPS** | `CLGeocoder` + `CLLocationManager` (Core Location) |
-| **Persistence**  | `@AppStorage` for location and unit preference |
-| **Images**       | [SDWebImageSwiftUI](https://github.com/SDWebImage/SDWebImageSwiftUI) for async icon loading |
+| **Persistence** | `@AppStorage` for location and unit preference |
+| **Images** | [SDWebImageSwiftUI](https://github.com/SDWebImage/SDWebImageSwiftUI) for async icon loading |
 
 ---
 
 ## Requirements
 
 - **Xcode** 15+
-- **iOS** 17.0+
-- **OpenWeatherMap API key** — [Sign up](https://openweathermap.org/api) and create a key (One Call API 3.0)
+- **iOS** 16.0+
+- **OpenWeatherMap API key** — [Sign up](https://openweathermap.org/api) and subscribe to the One Call API 3.0
 
 ---
 
@@ -56,55 +56,73 @@ cd Tether-Weather-App
 
 ### 2. Add your OpenWeatherMap API key
 
-The app reads the API key from a config file that is **not** committed to the repo.
+The API key is **not** committed to the repo. It is injected into the app's `Info.plist` at build time via a local xcconfig file.
 
 1. Copy the example config:
    ```bash
    cp ApiKeys.xcconfig.example ApiKeys.xcconfig
    ```
-2. Open `ApiKeys.xcconfig` and replace `YOUR_OPENWEATHERMAP_API_KEY` with your key from [OpenWeatherMap](https://openweathermap.org/api).
+2. Open `ApiKeys.xcconfig` and replace `YOUR_OPENWEATHERMAP_API_KEY` with your key.
 
-Do not commit `ApiKeys.xcconfig`; it is listed in `.gitignore`.
+`ApiKeys.xcconfig` is listed in `.gitignore` and will never be committed.
 
 ### 3. Open and run in Xcode
 
 1. Open `Tether_iOS.xcodeproj` in Xcode.
-2. Select a simulator or device and press **⌘R** to build and run.
+2. Select a simulator or device and press **⌘R**.
 
-Dependencies (SDWebImageSwiftUI) are resolved via Swift Package Manager when you open the project.
+Swift Package Manager resolves the SDWebImageSwiftUI dependency automatically when you open the project.
 
 ---
 
-## Project structure
+## Project Structure
 
 ```
 Tether_iOS/
-├── Tether_iOSApp.swift          # App entry point
-├── ContentView.swift           # Main screen: picker, search, forecast list
-├── ForecastListViewModel.swift # Geocoding, API calls, persisted preferences
-├── ForecastViewModel.swift     # Per-day display logic, unit conversion
-├── Forecast.swift              # Codable models for API response
-├── API Service.swift           # Generic JSON fetch with URLSession
-├── UIApplication+Extension.swift
-├── Assets.xcassets
-└── Preview Content/
+├── Tether_iOSApp.swift          # App entry point (@main)
+├── ContentView.swift            # Main screen: search bar, GPS button, forecast cards
+├── ForecastListViewModel.swift  # @MainActor ObservableObject: geocoding, GPS, API calls
+├── ForecastViewModel.swift      # Per-day display logic, UnitSystem enum, Kelvin conversion
+├── Forecast.swift               # Codable models mapping the API JSON response
+└── API Service.swift            # Singleton APIService with generic async-throws getJSON
 ```
 
 Config at repo root:
 
-- `ApiKeys.xcconfig` — Your local API key (gitignored; create from `ApiKeys.xcconfig.example`).
-- `ApiKeys.xcconfig.example` — Template showing required keys.
+- `ApiKeys.xcconfig` — Your local API key (gitignored; create from `ApiKeys.xcconfig.example`)
+- `ApiKeys.xcconfig.example` — Template showing required keys
 
 ---
 
 ## Architecture
 
-- **MVVM** — `ForecastListViewModel` holds state and talks to `APIService` and `CLGeocoder`; views observe via `@StateObject` / `@Published`.
-- **API** — One Call API 3.0 returns 7-day `daily` data; `Forecast` and `Forecast.Daily` map the JSON.
-- **Units** — API uses Kelvin; `ForecastViewModel` converts to °C or °F based on the user’s choice stored in `@AppStorage`.
+### MVVM + Swift Concurrency
+
+The app follows MVVM with Swift's structured concurrency throughout:
+
+- **`ForecastListViewModel`** is annotated `@MainActor`, so all state mutations happen on the main thread without manual `DispatchQueue.main.async` calls. Public methods are `async`, keeping the call sites clean.
+- **`APIService.getJSON`** is `async throws` — it uses `URLSession.data(from:)` and throws typed `APIError` cases (`invalidURL`, `badStatus`, `corruptData`), each conforming to `LocalizedError`.
+- **`CLGeocoder`** doesn't have a native async API, so forward and reverse geocoding are wrapped in `withCheckedThrowingContinuation` to bridge into Swift concurrency cleanly.
+
+### GPS Flow
+
+`ForecastListViewModel` conforms to `CLLocationManagerDelegate`:
+
+1. Tapping the GPS button calls `requestCurrentLocation()`.
+2. If permission is undetermined, `requestWhenInUseAuthorization()` is called; the delegate's `locationManagerDidChangeAuthorization` fires on grant and immediately requests a one-shot location fix.
+3. On `didUpdateLocations`, the coordinate is reverse-geocoded to a city name (updating the search field), then `fetchWeather(at:)` is called.
+4. Delegate methods are marked `nonisolated` (required since the class is `@MainActor`); they hop back to the main actor via `Task { @MainActor in … }`.
+
+### Unit Conversion
+
+The `UnitSystem` enum (`.celsius` / `.fahrenheit`) replaces a raw `Int` flag. It is stored as a `RawRepresentable` `Int` in `@AppStorage("system")` for persistence. When the user toggles units, `ForecastListViewModel` propagates the new value to every `ForecastViewModel` in the list. Conversion happens in `ForecastViewModel.convert(temp:)`: subtract 273.15 from Kelvin for °C, then apply the standard formula for °F.
+
+### UI
+
+`ContentView` uses `@FocusState` to manage keyboard dismissal (replacing the old `UIApplication.shared.endEditing()` hack). The forecast list is a `LazyVStack` inside a `ScrollView` for full control over card styling — each row uses `.regularMaterial` with a `RoundedRectangle` clip for the frosted-glass card look.
 
 ---
 
 ## License
 
-This project is for portfolio and learning purposes. OpenWeatherMap data is subject to [OpenWeatherMap’s terms and conditions](https://openweathermap.org/terms).
+This project is for portfolio and learning purposes. OpenWeatherMap data is subject to [OpenWeatherMap's terms and conditions](https://openweathermap.org/terms).
