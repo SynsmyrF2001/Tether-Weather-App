@@ -1,47 +1,37 @@
 import Foundation
 
-public class APIService{
-    public static let shared = APIService()
-    
-    public enum APIError: Error {
-        case error( errorString: String)
-    }
-    
-    public func getJSON<T: Decodable>(urlString: String,
-                                      dateDecodingStrategy: JSONDecoder.DateDecodingStrategy = .deferredToDate,
-                                      keyDecodingStrategy: JSONDecoder.KeyDecodingStrategy = .useDefaultKeys,
-                                      completion: @escaping(Result<T,APIError>) -> Void) {
-        guard let url = URL(string: urlString) else {
-            completion(.failure(.error(errorString: NSLocalizedString("Error: Invalid URL", comment: ""))))
-            return
+final class APIService {
+    static let shared = APIService()
+    private init() {}
+
+    enum APIError: LocalizedError {
+        case invalidURL
+        case badStatus(Int)
+        case corruptData
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidURL: return "Invalid URL."
+            case .badStatus(let code): return "Server returned status code \(code)."
+            case .corruptData: return "Data is corrupt or unreadable."
+            }
         }
-        let request = URLRequest(url: url)
-        URLSession.shared.dataTask(with: request) { (data, response, error) in
-            if let error = error {
-                completion(.failure(.error(errorString: "Error: \(error.localizedDescription)")))
-                return
-            }
-            if let httpResponse = response as? HTTPURLResponse,
-               !(200...299).contains(httpResponse.statusCode) {
-                completion(.failure(.error(errorString: NSLocalizedString("Error: Server returned status code \(httpResponse.statusCode).", comment: ""))))
-                return
-            }
-            guard let data = data else {
-                completion(.failure(.error(errorString: NSLocalizedString("Error: Data is corrupt.", comment: ""))))
-                return
-            }
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = dateDecodingStrategy
-            decoder.keyDecodingStrategy = keyDecodingStrategy
-            do {
-                let decodedData = try decoder.decode(T.self, from: data)
-                completion(.success(decodedData))
-                return
-            } catch let decodingError {
-                completion(.failure(APIError.error(errorString: "Error: \(decodingError.localizedDescription)")))
-                return
-            }
-        }.resume()
+    }
+
+    func getJSON<T: Decodable>(
+        urlString: String,
+        dateDecodingStrategy: JSONDecoder.DateDecodingStrategy = .deferredToDate,
+        keyDecodingStrategy: JSONDecoder.KeyDecodingStrategy = .useDefaultKeys
+    ) async throws -> T {
+        guard let url = URL(string: urlString) else { throw APIError.invalidURL }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.badStatus(http.statusCode)
+        }
+        guard !data.isEmpty else { throw APIError.corruptData }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = dateDecodingStrategy
+        decoder.keyDecodingStrategy = keyDecodingStrategy
+        return try decoder.decode(T.self, from: data)
     }
 }
-

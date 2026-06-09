@@ -1,89 +1,159 @@
-//
-//  ForecastListViewModel.swift
-//  Tether_iOS
-//
-//  Created by Synsmyr Forgue on 11/21/23.
-//
 import CoreLocation
 import Foundation
 import SwiftUI
 
-class ForecastListViewModel: ObservableObject {
+@MainActor
+final class ForecastListViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     struct AppError: Identifiable {
         let id = UUID().uuidString
         let errorString: String
     }
-    
+
     @Published var forecasts: [ForecastViewModel] = []
     @Published var appError: AppError? = nil
-    @Published var isLoading: Bool = false
+    @Published var isLoading = false
+    @Published var locationPermission: CLAuthorizationStatus = .notDetermined
+
     @AppStorage("location") var storageLocation: String = ""
     @Published var location = ""
-    @AppStorage("system") var system: Int = 0 {
+
+    @AppStorage("system") private var systemRaw: Int = UnitSystem.celsius.rawValue {
         didSet {
             for i in 0..<forecasts.count {
-                forecasts[i].system = system
+                forecasts[i].system = unitSystem
             }
         }
     }
-    
-    init() {
-        location = storageLocation
-        getWeatherForecast()
+
+    var unitSystem: UnitSystem {
+        get { UnitSystem(rawValue: systemRaw) ?? .celsius }
+        set { systemRaw = newValue.rawValue }
     }
 
-    func getWeatherForecast() {
+    private let locationManager = CLLocationManager()
+
+    override init() {
+        super.init()
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyKilometer
+        locationPermission = locationManager.authorizationStatus
+        location = storageLocation
+        Task { await getWeatherForecast() }
+    }
+
+    func getWeatherForecast() async {
         storageLocation = location
-        UIApplication.shared.endEditing()
-        if location == "" {
-            forecasts = []
-        } else {
+        guard !location.isEmpty else { forecasts = []; return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let coord = try await geocodeAddress(location)
+            try await fetchWeather(at: coord)
+        } catch let clError as CLError {
+            appError = AppError(errorString: geocoderErrorMessage(clError))
+        } catch {
+            appError = AppError(errorString: error.localizedDescription)
+        }
+    }
+
+    func requestCurrentLocation() {
+        switch locationPermission {
+        case .notDetermined:
+            locationManager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse, .authorizedAlways:
             isLoading = true
-            let apiService = APIService.shared
-            CLGeocoder().geocodeAddressString(location) { [weak self] (placemarks, error) in
-                guard let self = self else { return }
-                if let error = error as? CLError {
-                    switch error.code {
-                    case .locationUnknown, .geocodeFoundNoResult, .geocodeFoundPartialResult:
-                        self.appError = AppError(errorString: NSLocalizedString("Unable to determine location from this text.", comment: ""))
-                    case .network:
-                        self.appError = AppError(errorString: NSLocalizedString("No network connection.", comment: ""))
-                    default:
-                        self.appError = AppError(errorString: error.localizedDescription)
-                    }
-                    self.isLoading = false
-                    print(error.localizedDescription)
-                    return
+            locationManager.requestLocation()
+        case .denied, .restricted:
+            appError = AppError(errorString: "Location access is denied. Enable it in Settings > Privacy > Location Services.")
+        @unknown default:
+            break
+        }
+    }
+
+    // MARK: - CLLocationManagerDelegate
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        Task { @MainActor in
+            self.locationPermission = status
+            if status == .authorizedWhenInUse || status == .authorizedAlways {
+                self.isLoading = true
+                manager.requestLocation()
+            }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let clLocation = locations.first else { return }
+        Task { @MainActor in
+            defer { self.isLoading = false }
+            do {
+                let placemarks = try await self.reverseGeocode(clLocation)
+                if let name = placemarks.first?.locality ?? placemarks.first?.name {
+                    self.location = name
+                    self.storageLocation = name
                 }
-                if let lat = placemarks?.first?.location?.coordinate.latitude,
-                   let lon = placemarks?.first?.location?.coordinate.longitude {
-                    guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "OpenWeatherMapAPIKey") as? String, !apiKey.isEmpty else {
-                        DispatchQueue.main.async {
-                            self.appError = AppError(errorString: NSLocalizedString("OpenWeatherMap API key is missing. Add it in ApiKeys.xcconfig (see ApiKeys.xcconfig.example).", comment: ""))
-                            self.isLoading = false
-                        }
-                        return
-                    }
-                    let urlString = "https://api.openweathermap.org/data/3.0/onecall?lat=\(lat)&lon=\(lon)&exclude=current,minutely,hourly,alert&appid=\(apiKey)"
-                    apiService.getJSON(urlString: urlString, dateDecodingStrategy: .secondsSince1970) { [weak self] (result: Result<Forecast, APIService.APIError>) in
-                        guard let self = self else { return }
-                        DispatchQueue.main.async {
-                            switch result {
-                            case .success(let forecast):
-                                self.isLoading = false
-                                self.forecasts = forecast.daily.map { ForecastViewModel(forecast: $0, system: self.system) }
-                            case .failure(let apiError):
-                                switch apiError {
-                                case .error(let errorString):
-                                    self.isLoading = false
-                                    self.appError = AppError(errorString: errorString)
-                                    print(errorString)
-                                }
-                            }
-                        }
-                    }
+                try await self.fetchWeather(at: clLocation.coordinate)
+            } catch {
+                self.appError = AppError(errorString: error.localizedDescription)
+            }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            self.appError = AppError(errorString: error.localizedDescription)
+            self.isLoading = false
+        }
+    }
+
+    // MARK: - Private
+
+    private func geocodeAddress(_ address: String) async throws -> CLLocationCoordinate2D {
+        try await withCheckedThrowingContinuation { continuation in
+            CLGeocoder().geocodeAddressString(address) { placemarks, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else if let coord = placemarks?.first?.location?.coordinate {
+                    continuation.resume(returning: coord)
+                } else {
+                    continuation.resume(throwing: CLError(.geocodeFoundNoResult))
                 }
             }
+        }
+    }
+
+    private func reverseGeocode(_ location: CLLocation) async throws -> [CLPlacemark] {
+        try await withCheckedThrowingContinuation { continuation in
+            CLGeocoder().reverseGeocodeLocation(location) { placemarks, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: placemarks ?? [])
+                }
+            }
+        }
+    }
+
+    private func fetchWeather(at coord: CLLocationCoordinate2D) async throws {
+        guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "OpenWeatherMapAPIKey") as? String,
+              !apiKey.isEmpty else {
+            appError = AppError(errorString: "OpenWeatherMap API key is missing. Add it in ApiKeys.xcconfig.")
+            return
+        }
+        let urlString = "https://api.openweathermap.org/data/3.0/onecall?lat=\(coord.latitude)&lon=\(coord.longitude)&exclude=current,minutely,hourly,alert&appid=\(apiKey)"
+        let forecast: Forecast = try await APIService.shared.getJSON(urlString: urlString, dateDecodingStrategy: .secondsSince1970)
+        forecasts = forecast.daily.map { ForecastViewModel(forecast: $0, system: unitSystem) }
+    }
+
+    private func geocoderErrorMessage(_ error: CLError) -> String {
+        switch error.code {
+        case .locationUnknown, .geocodeFoundNoResult, .geocodeFoundPartialResult:
+            return "Unable to determine location from this text."
+        case .network:
+            return "No network connection."
+        default:
+            return error.localizedDescription
         }
     }
 }

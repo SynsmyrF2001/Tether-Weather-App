@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Tether Weather is an iOS weather app built with SwiftUI. It uses the OpenWeatherMap One Call API 3.0 to display a 7-day forecast for a user-entered location. The app supports Celsius/Fahrenheit toggling and persists the last searched location via `@AppStorage`.
+Tether Weather is an iOS weather app built with SwiftUI. It uses the OpenWeatherMap One Call API 3.0 to display a 7-day forecast for a user-entered location. The app supports Celsius/Fahrenheit toggling, persists the last searched location via `@AppStorage`, and can fetch weather for the device's current GPS location.
 
 ## Building & Running
 
@@ -20,39 +20,37 @@ xcodebuild test -project "Tether_iOS.xcodeproj" -scheme Tether_iOS -destination 
 The app uses MVVM with SwiftUI:
 
 - **`Forecast.swift`** — Codable model mapping the OpenWeatherMap API JSON response (`daily[]` array with `dt`, `temp`, `humidity`, `weather`, `clouds`, `pop`).
-- **`ForecastViewModel.swift`** — Per-day view model wrapping `Forecast.Daily`. Handles unit conversion from Kelvin (API returns Kelvin) to °C or °F, and formats display strings for high/low/clouds/pop/humidity/icon URL.
-- **`ForecastListViewModel.swift`** — `ObservableObject` driving `ContentView`. Uses `CLGeocoder` to resolve the typed location string to lat/lon, then calls `APIService`. Persists location and unit system via `@AppStorage`.
-- **`API Service.swift`** — Singleton `APIService.shared` with a generic `getJSON<T: Decodable>` method using `URLSession`. Configurable `dateDecodingStrategy` and `keyDecodingStrategy`.
-- **`ContentView.swift`** — Single-screen UI with a segmented C°/F° picker, location text field, forecast list, and a loading overlay. Uses `SDWebImageSwiftUI`'s `WebImage` for icon loading.
-- **`UIApplication+Extension.swift`** — Adds `endEditing()` to dismiss the keyboard on search.
-- **`Item.swift`** — SwiftData `@Model` stub from the Xcode template; not used by the weather feature.
+- **`ForecastViewModel.swift`** — Per-day view model wrapping `Forecast.Daily`. Declares the `UnitSystem` enum (`.celsius`/`.fahrenheit`). Handles Kelvin → °C/°F conversion and formats display strings. Uses `static let` formatters.
+- **`ForecastListViewModel.swift`** — `@MainActor ObservableObject` driving `ContentView`. Uses `async/await` with `CLGeocoder` (wrapped in `withCheckedThrowingContinuation`) to resolve typed locations, `CLLocationManager` for GPS, and `APIService` for weather data. Persists location and unit system via `@AppStorage`.
+- **`API Service.swift`** — Singleton `APIService.shared` with a generic `getJSON<T: Decodable>` async-throws method using `URLSession`.
+- **`ContentView.swift`** — Single-screen UI with an inline nav title, unit picker in the toolbar, a search bar with GPS button, and a `LazyVStack` forecast list. Keyboard dismiss uses `@FocusState`. Uses `SDWebImageSwiftUI`'s `WebImage` for icon loading. Forecast cards use `.regularMaterial` background.
+- **`Item.swift`** — Unused SwiftData `@Model` stub from the Xcode template. Safe to delete from the Xcode project.
+- **`UIApplication+Extension.swift`** — Unused `endEditing()` helper (replaced by `@FocusState`). Safe to delete from the Xcode project.
 
 ## Key Notes
 
-- **API key**: The OpenWeatherMap API key is not in source. It is read from `OpenWeatherMapAPIKey` in the app’s Info.plist, which is set via `ApiKeys.xcconfig` (gitignored). Copy `ApiKeys.xcconfig.example` to `ApiKeys.xcconfig` and add your key. The app targets the OpenWeatherMap One Call API 3.0 endpoint.
+- **API key**: The OpenWeatherMap API key is not in source. It is read from `OpenWeatherMapAPIKey` in the app's Info.plist, which is set via `ApiKeys.xcconfig` (gitignored). Copy `ApiKeys.xcconfig.example` to `ApiKeys.xcconfig` and add your key. The app targets the OpenWeatherMap One Call API 3.0 endpoint.
+- **GPS / location permission**: `NSLocationWhenInUseUsageDescription` must be set. In Xcode, go to the target → Info tab and add this key with a description string, or add `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = <description>` to the xcconfig.
 - Temperature conversion happens in `ForecastViewModel.convert(temp:)`: API values are in Kelvin, subtract 273.15 to get Celsius.
-- The `system` property (0 = Celsius, 1 = Fahrenheit) is stored via `@AppStorage("system")` and propagated to all `ForecastViewModel` items on change.
+- `unitSystem` (`UnitSystem` enum) is stored as a raw `Int` via `@AppStorage("system")` in `ForecastListViewModel` and propagated to all `ForecastViewModel` items on change.
 - `weatherIconURL` returns `URL?` — SDWebImageSwiftUI's `WebImage` handles optional URLs natively.
-- `SwiftData` / `ModelContainer` is set up in `Tether_iOSApp.swift` but the `Item` model is unused — leftover from the Xcode template.
 
 ## Refinements Applied
 
-### Bug Fixes
+### Bug Fixes (prior session)
 - **`appError` made `@Published`** — was not reactive, so `.alert` binding never fired.
-- **Threading**: all UI state mutations from the `APIService` completion are wrapped in `DispatchQueue.main.async`; geocoder error path now returns early to prevent falling through to the coordinate check.
-- **Retain cycles**: added `[weak self]` + `guard let self` to both async closures in `ForecastListViewModel`.
-- **Kelvin constant**: fixed `273.5` → `273.15` in `ForecastViewModel.convert(temp:)`.
-- **Force-unwrap URL removed**: `weatherIconURL` is now `URL?`, built with `forecast.weather.first?.icon`.
-- **Unsafe array access removed**: all `forecast.weather[0]` replaced with `forecast.weather.first?` with safe fallbacks.
-- **HTTP status codes**: `APIService` now fails with a descriptive error for non-2xx responses before attempting to decode.
+- **Kelvin constant**: fixed `273.5` → `273.15`.
+- **Force-unwrap URL removed**: `weatherIconURL` is now `URL?`.
+- **Unsafe array access removed**: `forecast.weather[0]` → `forecast.weather.first?`.
+- **HTTP status codes**: `APIService` fails with a descriptive error for non-2xx responses.
 
-### Modernisation & Polish
-- **`NavigationView` → `NavigationStack`** (iOS 16+).
-- **`onCommit:` → `.onSubmit {}`** (deprecated since iOS 15).
-- **`.pickerStyle(SegmentedPickerStyle())` → `.pickerStyle(.segmented)`**.
-- **`.listStyle(PlainListStyle())` → `.listStyle(.plain)`**.
-- **`Alert(title:message:)` → `alert(_:isPresented:presenting:actions:message:)`** (modern non-deprecated form).
-- **Loading overlay**: `Color(.white).opacity(0.3)` → `Color.black.opacity(0.3)` to work correctly in dark mode.
-- **`PreviewProvider` struct → `#Preview` macro**.
-- **Static formatters**: changed from computed `var` (new instance each access) to `static let` with closure initialiser in `ForecastViewModel`.
-- **Typo**: `getWeatherFoecast` renamed to `getWeatherForecast` throughout.
+### Modernisation (prior session)
+- `NavigationView` → `NavigationStack`, `onCommit:` → `.onSubmit {}`, modern `.alert` API, `#Preview` macro, static formatters, typo fix (`getWeatherFoecast` → `getWeatherForecast`).
+
+### Refinement Pass (current)
+- **`async/await`**: `APIService.getJSON` is now `async throws`. `ForecastListViewModel` is `@MainActor` with `async` methods; all `DispatchQueue.main.async` and `[weak self]` guards removed.
+- **GPS**: `ForecastListViewModel` conforms to `CLLocationManagerDelegate`. `requestCurrentLocation()` requests device location; on success, reverse-geocodes to a city name and fetches the forecast.
+- **`UnitSystem` enum**: replaces the raw `Int` (0/1) throughout `ForecastViewModel` and `ForecastListViewModel`.
+- **`@FocusState`**: replaces the `UIApplication.shared.endEditing()` hack for keyboard dismissal.
+- **UI redesign**: subtle gradient background, card-style `ForecastRow` with `.regularMaterial`, `LazyVStack` instead of `List`, short-day + date label, H/L temps with bold hierarchy, stat labels using SF Symbols (drop, cloud, humidity).
+- **Dead code**: SwiftData `ModelContainer` removed from `Tether_iOSApp.swift`; `Item.swift` and `UIApplication+Extension.swift` are now unused (remove from Xcode project when convenient).
