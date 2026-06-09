@@ -8,6 +8,7 @@ A SwiftUI iOS app that shows a 7-day weather forecast for any location using the
 
 - **7-day forecast** — Daily high/low, conditions, humidity, cloud cover, and precipitation chance
 - **Location search** — Enter a city or place; results are geocoded and used to fetch weather
+- **GPS** — Tap the arrow button to fetch weather for your current location (reverse-geocoded to a city name)
 - **°C / °F toggle** — Switch between Celsius and Fahrenheit; preference is saved
 - **Last location** — Your last searched location is remembered and loaded on launch
 - **Weather icons** — Condition icons loaded from OpenWeatherMap
@@ -17,7 +18,9 @@ A SwiftUI iOS app that shows a 7-day weather forecast for any location using the
 
 ## Screenshots
 
-_Add screenshots of the app here (e.g. main screen, forecast list, dark mode)._
+| Boston — °C | Boston — °F | Tokyo — °C | Tokyo — °F |
+|:-----------:|:-----------:|:----------:|:----------:|
+| ![Boston °C](screenshots/boston-celsius.png) | ![Boston °F](screenshots/boston-fahrenheit.png) | ![Tokyo °C](screenshots/tokyo-celsius.png) | ![Tokyo °F](screenshots/tokyo-fahrenheit.png) |
 
 ---
 
@@ -28,7 +31,7 @@ _Add screenshots of the app here (e.g. main screen, forecast list, dark mode)._
 | **UI**      | SwiftUI (iOS 17+) |
 | **Architecture** | MVVM |
 | **Networking**   | `URLSession`, OpenWeatherMap One Call API 3.0 |
-| **Geocoding**    | `CLGeocoder` (Core Location) |
+| **Geocoding / GPS** | `CLGeocoder` + `CLLocationManager` (Core Location) |
 | **Persistence**  | `@AppStorage` for location and unit preference |
 | **Images**       | [SDWebImageSwiftUI](https://github.com/SDWebImage/SDWebImageSwiftUI) for async icon loading |
 
