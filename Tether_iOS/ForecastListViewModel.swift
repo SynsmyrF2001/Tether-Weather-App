@@ -2,6 +2,7 @@ import CoreLocation
 import Foundation
 import SwiftUI
 
+
 @MainActor
 final class ForecastListViewModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     struct AppError: Identifiable {
